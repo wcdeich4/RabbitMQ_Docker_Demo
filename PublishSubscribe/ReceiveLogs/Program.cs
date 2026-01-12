@@ -2,26 +2,42 @@
 using RabbitMQ.Client.Events;
 using System.Text;
 
+string[] severityLevels;
+
+if (args.Length < 1)
+{
+  severityLevels = ["info", "warning", "error"];
+}
+else
+{
+  severityLevels = args;
+}
+
 var factory = new ConnectionFactory { HostName = "localhost" };
+
 using var connection = await factory.CreateConnectionAsync();
 using var channel = await connection.CreateChannelAsync();
 
-await channel.ExchangeDeclareAsync(exchange: "logs",
-    type: ExchangeType.Fanout);
+await channel.ExchangeDeclareAsync(exchange: "direct_logs", type: ExchangeType.Direct);
 
 // declare a server-named queue
-QueueDeclareOk queueDeclareResult = await channel.QueueDeclareAsync();
+var queueDeclareResult = await channel.QueueDeclareAsync();
 string queueName = queueDeclareResult.QueueName;
-await channel.QueueBindAsync(queue: queueName, exchange: "logs", routingKey: string.Empty);
 
-Console.WriteLine(" [*] Waiting for logs.");
+foreach (string? severity in severityLevels)
+{
+    await channel.QueueBindAsync(queue: queueName, exchange: "direct_logs", routingKey: severity);
+}
+
+Console.WriteLine(" [*] Waiting for messages.");
 
 var consumer = new AsyncEventingBasicConsumer(channel);
 consumer.ReceivedAsync += (model, ea) =>
 {
-    byte[] body = ea.Body.ToArray();
+    var body = ea.Body.ToArray();
     var message = Encoding.UTF8.GetString(body);
-    Console.WriteLine($" [x] {message}");
+    var routingKey = ea.RoutingKey;
+    Console.WriteLine($" [x] Received '{routingKey}':'{message}'");
     return Task.CompletedTask;
 };
 
